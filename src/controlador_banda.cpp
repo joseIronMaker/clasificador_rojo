@@ -8,7 +8,9 @@
 //      GRIP     : tras "attach" sigue al gripper RÍGIDA. Captura UNA vez el offset caja<-tool0
 //                 (en el frame de tool0) y lo mantiene -> la caja se queda DONDE estaba al cerrar,
 //                 sin "aparecer de la nada"; al moverse/levantarse tool0, la caja va con él.
-//      DELIVERED: tras "to_turtlebot"/"release" queda quieta donde se soltó.
+//      RIDE_TB  : tras "to_turtlebot" viaja ENCIMA del TurtleBot (sigue DEF TURTLEBOT por Supervisor,
+//                 centrada + ride_z en Z) -> la caja llega a la estación montada en el robot móvil.
+//      DELIVERED: tras "release" queda quieta donde se soltó.
 //  - Publica /caja_roja/pos (PointStamped, world): el nodo `brazo` planifica el pick a ESA posición
 //    real (por IK), así el gripper baja sobre la caja en la banda de verdad.
 //
@@ -59,6 +61,7 @@ public:
     belt_speed_ = paramD(parameters, "belt_speed", 0.25);
     world_frame_ = paramS(parameters, "world_frame", "world");
     grip_frame_ = paramS(parameters, "grip_frame", "tool0");
+    ride_z_ = paramD(parameters, "ride_z", 0.15);  // altura de la caja sobre el TurtleBot
 
     dt_ = wb_robot_get_basic_time_step() / 1000.0;
     if (dt_ <= 0.0) dt_ = 0.016;
@@ -70,6 +73,11 @@ public:
     box_ = wb_supervisor_node_get_from_def("BOX_ROJA");
     if (box_) box_tr_ = wb_supervisor_node_get_field(box_, "translation");
     else RCLCPP_WARN(node_->get_logger(), "[controlador_banda] falta DEF BOX_ROJA");
+
+    // DEF TURTLEBOT: la caja lo seguirá (RIDE_TB) para viajar a la estación montada encima.
+    tb_ = wb_supervisor_node_get_from_def("TURTLEBOT");
+    if (tb_) tb_tr_ = wb_supervisor_node_get_field(tb_, "translation");
+    else RCLCPP_WARN(node_->get_logger(), "[controlador_banda] falta DEF TURTLEBOT (caja no viajará)");
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -130,12 +138,22 @@ public:
       const tf2::Vector3 pw = T * box_local_;
       const double np[3] = {pw.x(), pw.y(), pw.z()};
       wb_supervisor_field_set_sf_vec3f(box_tr_, np);
+      return;
+    }
+
+    if (box_state_ == Box::RIDE_TB) {  // viaja centrada encima del TurtleBot (lo sigue por Supervisor)
+      if (tb_tr_) {
+        const double *t = wb_supervisor_field_get_sf_vec3f(tb_tr_);
+        const double np[3] = {t[0], t[1], t[2] + ride_z_};
+        wb_supervisor_field_set_sf_vec3f(box_tr_, np);
+      }
+      return;
     }
     // DELIVERED: no se toca (queda donde se soltó).
   }
 
 private:
-  enum class Box { ON_BELT, GRIP, DELIVERED };
+  enum class Box { ON_BELT, GRIP, RIDE_TB, DELIVERED };
 
   void setBelt(bool on) {
     belt_on_ = on;
@@ -144,7 +162,8 @@ private:
   }
   void onGrasp(const std::string &c) {
     if (c == "attach") { box_state_ = Box::GRIP; have_offset_ = false; }
-    else if (c == "to_turtlebot" || c == "release") { box_state_ = Box::DELIVERED; }
+    else if (c == "to_turtlebot") { box_state_ = Box::RIDE_TB; }  // a viajar encima del TurtleBot
+    else if (c == "release") { box_state_ = Box::DELIVERED; }
     RCLCPP_INFO(node_->get_logger(), "[agarre] %s -> estado caja", c.c_str());
   }
 
@@ -152,7 +171,9 @@ private:
   WbFieldRef belt_speed_field_{0};
   WbNodeRef box_{0};
   WbFieldRef box_tr_{0};
-  double belt_speed_{0.25}, dt_{0.016};
+  WbNodeRef tb_{0};
+  WbFieldRef tb_tr_{0};
+  double belt_speed_{0.25}, dt_{0.016}, ride_z_{0.15};
   std::string world_frame_, grip_frame_;
   Box box_state_{Box::ON_BELT};
   bool belt_on_{false}, have_offset_{false}, warned_{false};

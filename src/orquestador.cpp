@@ -55,7 +55,16 @@ public:
         if (!cli_pick_->wait_for_service(120s))
           RCLCPP_WARN(get_logger(), "/pick_place no apareció en 120 s; arranco la banda igualmente");
         else
-          RCLCPP_INFO(get_logger(), "brazo listo; arranco la banda");
+          RCLCPP_INFO(get_logger(), "brazo listo");
+      }
+      if (etapa_ >= 3) {
+        // Nav2 tarda en activar (lifecycle_manager retrasado). NO arrancar la banda hasta que el
+        // servidor /navigate_to_pose esté, o la primera caja llegaría antes de que Nav2 pueda llevarla.
+        RCLCPP_INFO(get_logger(), "Etapa 3: esperando a que Nav2 (/navigate_to_pose) esté listo...");
+        if (!cli_nav_->wait_for_action_server(180s))
+          RCLCPP_WARN(get_logger(), "/navigate_to_pose no apareció en 180 s; arranco la banda igualmente");
+        else
+          RCLCPP_INFO(get_logger(), "Nav2 listo");
       }
       setBanda(true);
       estado_ = "BANDA_ON";
@@ -130,7 +139,7 @@ private:
   }
 
   void enviarNavegacion() {
-    if (!cli_nav_->wait_for_action_server(2s)) {
+    if (!cli_nav_->wait_for_action_server(10s)) {
       RCLCPP_WARN(get_logger(), "Nav2 no disponible; reanudo la banda");
       finProceso();
       return;

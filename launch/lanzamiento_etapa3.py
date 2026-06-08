@@ -17,7 +17,7 @@ import subprocess
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import EmitEvent, RegisterEventHandler
+from launch.actions import EmitEvent, RegisterEventHandler, TimerAction
 from launch.event_handlers import OnProcessExit, OnProcessIO
 from launch.events import Shutdown
 from launch_ros.actions import Node
@@ -60,6 +60,8 @@ def generate_launch_description():
     tb_urdf = os.path.join(pkg, "urdf", "turtlebot_webots.urdf")
     ros2_control = os.path.join(pkg, "config", "ros2_control_ur5e.yaml")
     tb_control = os.path.join(pkg, "config", "ros2control_turtlebot.yml")
+    nav2_params = os.path.join(pkg, "config", "nav2_params.yaml")
+    mapa = os.path.join(pkg, "config", "mapa_libre.yaml")
 
     def rd(path):
         return pathlib.Path(path).read_text()
@@ -149,12 +151,49 @@ def generate_launch_description():
                   arguments=["joint_state_broadcaster", "-c", "/tb/controller_manager"] + tbcmt)
     # (El árbol tb_base_link->tb_base_footprint/tb_base_scan/ruedas lo publica tb_rsp desde el URDF.)
 
+    # ================= Nav2 (Etapa 3b) =================
+    # map->tb_odom ESTATICO = pose del dock (TB_X,TB_Y), yaw 0 -> map == world (el diff_drive arranca su
+    # odom en (0,0) DONDE está físicamente el robot, que es el dock; sin AMCL este TF cierra map->...->base).
+    # Así los goals van en coords del mundo (la estación EST_X,EST_Y). Cadena TF completa:
+    #   map -(static)-> tb_odom -(diff_drive)-> tb_base_link -(tb_rsp)-> tb_base_scan (frame del /scan).
+    tf_map_odom = Node(package="tf2_ros", executable="static_transform_publisher", output="screen",
+                       arguments=[str(TB_X), str(TB_Y), "0", "0", "0", "0", "map", "tb_odom"])
+
+    # Nav2 MINIMO (sin namespace: hay UN solo stack de navegación y los frames ya son tb_; el
+    # orquestador llama /navigate_to_pose global). cmd_vel de RPP/behaviors -> diff_drive (TwistStamped).
+    nav2_lifecycle = ["map_server", "planner_server", "controller_server", "behavior_server", "bt_navigator"]
+    cmd_remap = [("cmd_vel", "/tb/diffdrive_controller/cmd_vel")]
+    # Los 5 nodos worker arrancan PRIMERO (quedan en estado 'unconfigured', casi sin CPU) para que
+    # completen el DISCOVERY de fastrtps mientras Webots/MoveIt aún cargan.
+    nav2_workers = [
+        Node(package="nav2_map_server", executable="map_server", name="map_server", output="screen",
+             parameters=[nav2_params, {"yaml_filename": mapa, "use_sim_time": True}]),
+        Node(package="nav2_planner", executable="planner_server", name="planner_server", output="screen",
+             parameters=[nav2_params]),
+        Node(package="nav2_controller", executable="controller_server", name="controller_server",
+             output="screen", parameters=[nav2_params], remappings=cmd_remap),
+        Node(package="nav2_behaviors", executable="behavior_server", name="behavior_server",
+             output="screen", parameters=[nav2_params], remappings=cmd_remap),
+        Node(package="nav2_bt_navigator", executable="bt_navigator", name="bt_navigator",
+             output="screen", parameters=[nav2_params]),
+    ]
+    # El lifecycle_manager (autostart) arranca RETRASADO 25 s: para entonces MoveIt ya inicializó y el
+    # sistema está tranquilo, así las llamadas change_state no se pierden por la carga (si arranca en
+    # el pico de carga, la respuesta de configure se DESCARTA y el manager se queda colgado -> Nav2
+    # nunca activa). El orquestador (etapa 3) NO arranca la banda hasta ver /navigate_to_pose, así que
+    # este retraso solo demora el inicio del ciclo, no lo rompe.
+    nav2_manager = Node(
+        package="nav2_lifecycle_manager", executable="lifecycle_manager",
+        name="lifecycle_manager_nav", output="screen",
+        parameters=[{"use_sim_time": True, "autostart": True, "node_names": nav2_lifecycle}])
+
     # ================= Etapa 1 (cámara, detección, banda, MQTT) =================
     deteccion = Node(package="clasificador_rojo", executable="deteccion_rojo",
                      parameters=[{"use_sim_time": True}], output="screen")
-    # (3a) orquestador en etapa 2: pick&place + banda; el TurtleBot se prueba aparte por /cmd_vel.
+    # (3b) orquestador en etapa 3: caja roja -> detiene banda -> UR5e pick&place sobre el TurtleBot ->
+    # NavigateToPose a la estación -> banda queda DETENIDA (reanuda con "start" por MQTT).
     orquestador = Node(package="clasificador_rojo", executable="orquestador",
-                       parameters=[{"use_sim_time": True, "etapa": 2,
+                       parameters=[{"use_sim_time": True, "etapa": 3,
                                     "estacion_x": EST_X, "estacion_y": EST_Y}], output="screen")
     mqtt = Node(package="mqtt_client", executable="mqtt_client", name="mqtt_client",
                 parameters=[os.path.join(pkg, "config", "mqtt_params.yaml")], output="screen")
@@ -163,7 +202,7 @@ def generate_launch_description():
     return LaunchDescription([
         webots, webots._supervisor,
         camara, supervisor,
-        rsp, tf_world_ur5e,
+        rsp, tf_world_ur5e, tf_map_odom,
         tb_driver, tb_rsp,
         WaitForControllerConnection(
             target_driver=camara,
@@ -177,5 +216,11 @@ def generate_launch_description():
         WaitForControllerConnection(
             target_driver=tb_driver,
             nodes_to_start=[diff_spawner, jsb_tb]),
+        # Los workers de Nav2 arrancan cuando diff_spawner SALE (diff_drive ya activo -> publica odom y
+        # el TF tb_odom->tb_base_link). El lifecycle_manager se retrasa 25 s (sistema ya tranquilo) para
+        # que el bringup no se cuelgue por una respuesta change_state perdida bajo carga.
+        RegisterEventHandler(OnProcessExit(
+            target_action=diff_spawner,
+            on_exit=nav2_workers + [TimerAction(period=25.0, actions=[nav2_manager])])),
         RegisterEventHandler(OnProcessExit(target_action=webots, on_exit=[EmitEvent(event=Shutdown())])),
     ])

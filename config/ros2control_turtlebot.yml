@@ -25,6 +25,11 @@ tb/diffdrive_controller:
     base_frame_id: "tb_base_link"
     odom_frame_id: "tb_odom"
     enable_odom_tf: true
+    # CRITICO para Nav2: por defecto (tf_frame_prefix_enable:true + prefix vacío) el controlador
+    # ANTEPONE el namespace -> publica "tb/tb_odom"->"tb/tb_base_link", que NO conecta con el TF
+    # estático map->tb_odom ni con el rsp (tb_base_link->tb_base_scan), ambos SIN prefijo -> árboles TF
+    # desconectados y el global_costmap de Nav2 no activa. Con false usa los frames literales de arriba.
+    tf_frame_prefix_enable: false
 
     linear:
       x:
