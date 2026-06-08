@@ -24,6 +24,11 @@ WALLS = [
     (-3.05, -2.95, -2.50, 1.00),  # WALL_W  centro(-3.0,-0.75) size(0.1,3.5)
 ]
 
+# Obstáculos CIRCULARES (cilindros) en coords del mundo: (x, y, radio).
+OBSTACLES = [
+    (-1.30, -1.00, 0.15),   # DEF OBSTACULO: cilindro en el camino dock->estación
+]
+
 grid = [[FREE] * W for _ in range(H)]
 
 def fill(x0, x1, y0, y1):
@@ -36,8 +41,23 @@ def fill(x0, x1, y0, y1):
                 if 0 <= c < W:
                     grid[r][c] = OCC
 
+def fill_circle(cx, cy, r):
+    c0 = int((cx - r - OX) / RES); c1 = int((cx + r - OX) / RES)
+    rb0 = int((cy - r - OY) / RES); rb1 = int((cy + r - OY) / RES)
+    for rb in range(rb0, rb1 + 1):
+        wy = OY + rb * RES
+        row = (H - 1) - rb
+        if not 0 <= row < H:
+            continue
+        for c in range(c0, c1 + 1):
+            wx = OX + c * RES
+            if (wx - cx) ** 2 + (wy - cy) ** 2 <= r * r and 0 <= c < W:
+                grid[row][c] = OCC
+
 for w in WALLS:
     fill(*w)
+for o in OBSTACLES:
+    fill_circle(*o)
 
 out = os.path.join(os.path.dirname(__file__), "..", "config", "mapa_celda.pgm")
 out = os.path.abspath(out)

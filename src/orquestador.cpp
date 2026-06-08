@@ -73,13 +73,17 @@ public:
         // servidor /navigate_to_pose esté, o la primera caja llegaría antes de que Nav2 pueda llevarla.
         RCLCPP_INFO(get_logger(), "Etapa 3: esperando a que Nav2 (/navigate_to_pose) esté listo...");
         if (!cli_nav_->wait_for_action_server(180s))
-          RCLCPP_WARN(get_logger(), "/navigate_to_pose no apareció en 180 s; arranco la banda igualmente");
+          RCLCPP_WARN(get_logger(), "/navigate_to_pose no apareció en 180 s; sigo igualmente");
         else
           RCLCPP_INFO(get_logger(), "Nav2 listo");
       }
-      setBanda(true);
-      estado_ = "BANDA_ON";
-      RCLCPP_INFO(get_logger(), "Orquestador (etapa %d): banda en marcha", etapa_);
+      // NO arranca la banda sola: queda LISTO esperando el botón ▶ Iniciar del panel (o "start" por
+      // MQTT). Así la banda se mueve por primera vez solo cuando el operador lo pide.
+      setBanda(false);
+      estado_ = "LISTO";
+      RCLCPP_INFO(get_logger(),
+                  "Orquestador (etapa %d) LISTO. Presiona ▶ Iniciar en el panel (o 'start' por MQTT).",
+                  etapa_);
     });
   }
 
