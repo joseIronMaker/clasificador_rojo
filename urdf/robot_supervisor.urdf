@@ -7,7 +7,7 @@
 <robot name="robot_supervisor">
   <webots>
     <plugin type="clasificador_rojo::ControladorBanda">
-      <belt_speed>0.25</belt_speed>
+      <belt_speed>0.15</belt_speed>
       <world_frame>world</world_frame>
       <grip_frame>tool0</grip_frame>
       <!-- ride_z: altura del CENTRO de la caja (cubo 0.12) sobre el origen del TurtleBot al viajar.

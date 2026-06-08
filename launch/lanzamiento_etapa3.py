@@ -61,7 +61,7 @@ def generate_launch_description():
     ros2_control = os.path.join(pkg, "config", "ros2_control_ur5e.yaml")
     tb_control = os.path.join(pkg, "config", "ros2control_turtlebot.yml")
     nav2_params = os.path.join(pkg, "config", "nav2_params.yaml")
-    mapa = os.path.join(pkg, "config", "mapa_libre.yaml")
+    mapa = os.path.join(pkg, "config", "mapa_celda.yaml")  # recinto con paredes (scripts/genera_mapa.py)
 
     def rd(path):
         return pathlib.Path(path).read_text()

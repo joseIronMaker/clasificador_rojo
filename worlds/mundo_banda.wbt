@@ -146,9 +146,12 @@ DEF TURTLEBOT TurtleBot3Burger {
   ]
 }
 
-# --- Estacion de recoleccion (marca para el TurtleBot en la Etapa 3) ---
+# --- Estacion de recoleccion: PAD plano a ras de suelo (tipo plataforma de dock) ---
+# Antes era una caja de 0.10 m -> el robot (goal = su centro) se HUNDÍA en ella (sin colisión, y muy
+# baja para que el lidar la vea). Ahora 0.02 m de alto -> el TurtleBot se posa ENCIMA limpio, como un
+# marcador de "zona de recolección" en el piso. 0.6x0.6 para enmarcar al robot (~0.14 m).
 DEF ESTACION Solid {
-  translation -2.0 -1.5 0.05
+  translation -2.0 -1.5 0.01
   children [
     Shape {
       appearance PBRAppearance {
@@ -157,9 +160,60 @@ DEF ESTACION Solid {
         metalness 0
       }
       geometry Box {
-        size 0.5 0.5 0.1
+        size 0.6 0.6 0.02
       }
     }
   ]
   name "estacion"
+}
+
+# --- PAREDES DEL RECINTO (celda de trabajo) ---
+# Encierran banda + pedestal + dock del TurtleBot (-0.55,-0.45) + estación (-2.0,-1.5) con holgura:
+# interior x∈[-3.0,1.7], y∈[-2.5,1.0]. Altura 0.5 m -> el lidar del Burger (~0.17 m) las VE y entran al
+# costmap de Nav2 (esquiva/bordea). GRISES (no rojas) -> la cámara cenital nunca las confunde con la caja.
+# Solids ESTÁTICOS (sin Physics) con boundingObject -> inmóviles y con colisión. Sus posiciones se
+# DIBUJAN idénticas en config/mapa_celda.pgm (por eso NO hace falta SLAM: la geometría ya se conoce).
+DEF WALL_N Solid {
+  translation -0.65 1.0 0.25
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.6 0.6 0.65 roughness 1 metalness 0 }
+      geometry Box { size 4.7 0.1 0.5 }
+    }
+  ]
+  name "wall_n"
+  boundingObject Box { size 4.7 0.1 0.5 }
+}
+DEF WALL_S Solid {
+  translation -0.65 -2.5 0.25
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.6 0.6 0.65 roughness 1 metalness 0 }
+      geometry Box { size 4.7 0.1 0.5 }
+    }
+  ]
+  name "wall_s"
+  boundingObject Box { size 4.7 0.1 0.5 }
+}
+DEF WALL_E Solid {
+  translation 1.7 -0.75 0.25
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.6 0.6 0.65 roughness 1 metalness 0 }
+      geometry Box { size 0.1 3.5 0.5 }
+    }
+  ]
+  name "wall_e"
+  boundingObject Box { size 0.1 3.5 0.5 }
+}
+DEF WALL_W Solid {
+  translation -3.0 -0.75 0.25
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.6 0.6 0.65 roughness 1 metalness 0 }
+      geometry Box { size 0.1 3.5 0.5 }
+    }
+  ]
+  name "wall_w"
+  boundingObject Box { size 0.1 3.5 0.5 }
 }
