@@ -1,30 +1,33 @@
-"""Etapa 3 — flujo completo: + TurtleBot3 (Nav2) lleva la caja a la estación.
+"""Etapa 3 — flujo completo: Etapa 2 (UR5e pick&place) + TurtleBot3 (Nav2) lleva la caja a la estación.
 
-DRAFT: finalizar tras instalar (ver POST_INSTALL.md). Requiere:
-  - Añadir 'DEF TURTLEBOT TurtleBot3Burger {...}' al mundo (worlds/mundo_banda.wbt).
-  - Recursos stock copiados: turtlebot_webots.urdf, ros2control_turtlebot.yml, nav2_params.yaml (parcheado), mapa.{yaml,pgm}.
-Estructura = Etapa 2 + TurtleBot (WebotsController) + Nav2 (nav2_bringup) + orquestador etapa 3.
-Puntos a verificar marcados con  # VERIFICAR.
+Construido SOBRE la Etapa 2 que ya funciona (mismo UR5e/MoveIt/agarre). Se añade el TurtleBot3 Burger
+(ya está en el mundo como DEF TURTLEBOT) con frames PREFIJADOS `tb_` para NO chocar con el `base_link`
+del UR5e (que vive en el /tf global para el agarre). Los dos árboles TF coexisten:
+  UR5e:      world -> base_link -> ... -> tool0          (global /tf)
+  TurtleBot: map -> tb_odom -> tb_base_link -> {tb_base_footprint, tb_base_scan}
+
+Nav2 (3b) usa map->tb_odom ESTÁTICO (sin AMCL: el odom del simulador no deriva en un trayecto corto)
+para que map == world y los goals vayan en coords del mundo; el costmap local del /scan esquiva la
+banda/pedestal. La caja sobre el TurtleBot la sigue el plugin por Supervisor (no por TF).
 """
 import os
+import pathlib
+import subprocess
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import EmitEvent, IncludeLaunchDescription, RegisterEventHandler, TimerAction
-from launch.event_handlers import OnProcessExit
+from launch.actions import EmitEvent, RegisterEventHandler
+from launch.event_handlers import OnProcessExit, OnProcessIO
 from launch.events import Shutdown
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
 from webots_ros2_driver.webots_launcher import WebotsLauncher
 from webots_ros2_driver.webots_controller import WebotsController
-from webots_ros2_driver.urdf_spawner import URDFSpawner
+from webots_ros2_driver.urdf_spawner import URDFSpawner, get_webots_driver_node
 from webots_ros2_driver.wait_for_controller_connection import WaitForControllerConnection
 
-# --- Arreglo de red WSL2: webots_ros2 deriva la IP de Webots del nameserver de resolv.conf
-# (proxy DNS no ruteable); Webots es accesible por el gateway por defecto. Ver Etapa 1. ---
-import subprocess  # noqa: E402
+# --- Arreglo de red WSL2 (ver Etapa 1) ---
 import webots_ros2_driver.utils as _wru  # noqa: E402
 
 
@@ -41,16 +44,13 @@ def _gateway_ip():
 
 
 _wru.get_wsl_ip_address = _gateway_ip
+# -----------------------------------------
 
-
-def _read(path):
-    with open(path) as f:
-        return f.read()
-
-
-def _yaml(path):
-    with open(path) as f:
-        return yaml.safe_load(f)
+# Pose de spawn del UR5e (= Etapa 2). El TF estático world->base_link debe COINCIDIR.
+UR_X, UR_Y, UR_Z, UR_YAW = -0.10, -0.45, 0.60, 1.5708
+# Dock del TurtleBot (= sitio de descarga del UR5e). Estación de recolección (goal de Nav2).
+TB_X, TB_Y = -0.55, -0.45
+EST_X, EST_Y = -2.0, -1.5
 
 
 def generate_launch_description():
@@ -58,109 +58,124 @@ def generate_launch_description():
     world = os.path.join(pkg, "worlds", "mundo_banda.wbt")
     ur5e_urdf = os.path.join(pkg, "urdf", "ur5e_with_gripper.urdf")
     tb_urdf = os.path.join(pkg, "urdf", "turtlebot_webots.urdf")
+    ros2_control = os.path.join(pkg, "config", "ros2_control_ur5e.yaml")
+    tb_control = os.path.join(pkg, "config", "ros2control_turtlebot.yml")
+
+    def rd(path):
+        return pathlib.Path(path).read_text()
+
+    def ry(path):
+        return yaml.safe_load(rd(path))
 
     webots = WebotsLauncher(world=world, ros2_supervisor=True)
 
     camara = WebotsController(
         robot_name="camera_robot",
         parameters=[{"robot_description": os.path.join(pkg, "urdf", "camara.urdf"),
-                     "use_sim_time": True}],
-    )
+                     "use_sim_time": True}])
     supervisor = WebotsController(
         robot_name="robot_supervisor",
         parameters=[{"robot_description": os.path.join(pkg, "urdf", "robot_supervisor.urdf"),
-                     "use_sim_time": True}],
-    )
+                     "use_sim_time": True}])
 
-    # --- UR5e (igual que Etapa 2) ---
-    spawn_ur5e = URDFSpawner(name="UR5e", urdf_path=ur5e_urdf,
-                             translation="0.9 0 0.6", rotation="0 0 1 -1.5708")
+    # ================= UR5e (idéntico a Etapa 2) =================
+    spawn_ur5e = URDFSpawner(
+        name="UR5e", urdf_path=ur5e_urdf,
+        translation=f"{UR_X} {UR_Y} {UR_Z}", rotation=f"0 0 1 {UR_YAW}",
+        init_pos="-0.3007 -1.6833 1.9549 -1.8424 -1.5708 -1.8715")
     ur5e_driver = WebotsController(
-        robot_name="UR5e", namespace="ur5e", respawn=True,
-        parameters=[{"robot_description": ur5e_urdf, "use_sim_time": True,
-                     "set_robot_state_publisher": True},
-                    os.path.join(pkg, "config", "ros2_control_ur5e.yaml")],
-    )
-    ur5e_driver_delayed = TimerAction(period=6.0, actions=[ur5e_driver])
-    traj_spawner = Node(package="controller_manager", executable="spawner",
-                        arguments=["ur_joint_trajectory_controller", "-c", "/ur5e/controller_manager",
-                                   "--controller-manager-timeout", "120"])
-    jsb_spawner = Node(package="controller_manager", executable="spawner",
-                       arguments=["ur_joint_state_broadcaster", "-c", "/ur5e/controller_manager",
-                                  "--controller-manager-timeout", "120"])
+        robot_name="UR5e", namespace="ur5e",
+        parameters=[{"robot_description": ur5e_urdf}, {"use_sim_time": True},
+                    {"set_robot_state_publisher": True}, ros2_control])
+    cmt = ["--controller-manager-timeout", "100"]
+    traj_spawner = Node(package="controller_manager", executable="spawner", output="screen",
+                        arguments=["ur_joint_trajectory_controller", "-c", "ur5e/controller_manager"] + cmt)
+    jsb_spawner = Node(package="controller_manager", executable="spawner", output="screen",
+                       arguments=["ur_joint_state_broadcaster", "-c", "ur5e/controller_manager"] + cmt)
+    rsp = Node(package="robot_state_publisher", executable="robot_state_publisher",
+               output="screen", parameters=[{"robot_description": rd(ur5e_urdf), "use_sim_time": True}],
+               remappings=[("joint_states", "/ur5e/joint_states"),
+                           ("robot_description", "/ur5e/robot_description")])
+    tf_world_ur5e = Node(package="tf2_ros", executable="static_transform_publisher", output="screen",
+                         arguments=[str(UR_X), str(UR_Y), str(UR_Z), str(UR_YAW), "0", "0", "world", "base_link"])
 
-    rd = {"robot_description": _read(ur5e_urdf)}
-    rds = {"robot_description_semantic": _read(os.path.join(pkg, "config", "moveit_ur5e.srdf"))}
-    kin = _yaml(os.path.join(pkg, "config", "moveit_kinematics.yaml"))
-    ompl = _yaml(os.path.join(pkg, "config", "moveit_movegroup.yaml"))
-    mctrl = _yaml(os.path.join(pkg, "config", "moveit_controllers.yaml"))
-    move_group = Node(package="moveit_ros_move_group", executable="move_group", output="screen",
-                      parameters=[rd, rds, kin, ompl, mctrl,
-                                  {"use_sim_time": True, "publish_robot_description_semantic": True}],
-                      remappings=[("/joint_states", "/ur5e/joint_states")])
-    tf_world_ur5e = Node(package="tf2_ros", executable="static_transform_publisher",
-                         arguments=["0.9", "0", "0.6", "-1.5708", "0", "0", "world", "base_link"])
-    brazo = Node(package="clasificador_rojo", executable="brazo", output="screen",
-                 parameters=[rd, rds, kin, {"use_sim_time": True}])
+    description = {"robot_description": rd(ur5e_urdf)}
+    description_semantic = {"robot_description_semantic": rd(os.path.join(pkg, "config", "moveit_ur5e.srdf"))}
+    description_kinematics = {"robot_description_kinematics": ry(os.path.join(pkg, "config", "moveit_kinematics.yaml"))}
+    description_planning = {"robot_description_planning": ry(os.path.join(pkg, "config", "joint_limits.yaml"))}
+    sim_time = {"use_sim_time": True}
+    movegroup = {"move_group": ry(os.path.join(pkg, "config", "moveit_movegroup.yaml"))}
+    moveit_controllers = {
+        "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
+        "moveit_simple_controller_manager": ry(os.path.join(pkg, "config", "moveit_controllers.yaml"))}
+    move_group = Node(
+        package="moveit_ros_move_group", executable="move_group", output="screen",
+        parameters=[description, description_semantic, description_kinematics, description_planning,
+                    moveit_controllers, movegroup, sim_time],
+        remappings=[("/joint_states", "/ur5e/joint_states")])
+    brazo = Node(
+        package="clasificador_rojo", executable="brazo", output="screen",
+        parameters=[description, description_semantic, description_kinematics, description_planning, sim_time,
+                    {"vel_scaling": 0.15,
+                     "hover_pick":  [-0.3007, -1.6833, 1.9549, -1.8424, -1.5708, -1.8715],
+                     "pick":        [-0.3007, -1.4919, 2.2051, -2.2839, -1.5708, -1.8715],
+                     "hover_place": [ 1.2701, -1.6596, 2.0143, -1.9255, -1.5708, -0.3007],
+                     "place":       [ 1.2701, -1.4307, 2.2395, -2.3796, -1.5708, -0.3007]}])
 
-    # --- TurtleBot3 ---
-    # VERIFICAR: prefijo de frames para evitar colisión con base_link del UR5e
-    # (p.ej. frame_prefix 'turtlebot/' en su robot_state_publisher y tb_frame en el plugin).
-    footprint = Node(package="tf2_ros", executable="static_transform_publisher",
-                     arguments=["0", "0", "0", "0", "0", "0", "base_link", "base_footprint"])
+    # ================= TurtleBot3 Burger (Etapa 3) =================
+    # El TurtleBot ya está en el mundo (DEF TURTLEBOT) -> su driver conecta de una (no se spawnea).
+    # NAMESPACE "tb": CRÍTICO. Sin namespace, su rsp publica /robot_description GLOBAL (URDF con ruedas)
+    # y choca con el del UR5e -> el driver del UR5e agarra ese URDF y crashea ("Cannot find Motor right
+    # wheel motor"). Con namespace, publica /tb/robot_description y su controller_manager es
+    # /tb/controller_manager -> aislado del UR5e (igual que el UR5e está aislado en /ur5e).
+    # El hardware se enlaza por robot_name="TurtleBot3Burger" (el namespace solo afecta tópicos ROS).
+    # SIN respawn: con respawn, si el driver re-arranca re-imprime "Controller successfully connected"
+    # y WaitForControllerConnection (que no tiene guarda) re-dispara los spawners -> "executed more
+    # than once" -> excepción del launch -> shutdown en cascada (Webots se cierra).
     tb_driver = WebotsController(
-        robot_name="TurtleBot3Burger", respawn=True,
+        robot_name="TurtleBot3Burger", namespace="tb",
         parameters=[{"robot_description": tb_urdf, "use_sim_time": True,
-                     "set_robot_state_publisher": True},
-                    os.path.join(pkg, "config", "ros2control_turtlebot.yml")],
-        # Jazzy: cmd_vel/odom van con remap del controlador diff_drive (TwistStamped).
-        remappings=[("/diffdrive_controller/cmd_vel", "/cmd_vel"),
-                    ("/diffdrive_controller/odom", "/odom")],
-    )
-    diff_spawner = Node(package="controller_manager", executable="spawner",
-                        arguments=["diffdrive_controller", "--controller-manager-timeout", "120"])
-    jsb_tb = Node(package="controller_manager", executable="spawner",
-                  arguments=["joint_state_broadcaster", "--controller-manager-timeout", "120"])
+                     "set_robot_state_publisher": False},
+                    tb_control])
+    # rsp explícito del TurtleBot -> publica /tb/robot_description (lo lee su /tb/controller_manager
+    # para inicializar el diff_drive). El URDF lleva un <link> raíz mínimo para que rsp lo parsee.
+    tb_rsp = Node(package="robot_state_publisher", executable="robot_state_publisher",
+                  namespace="tb", output="screen",
+                  parameters=[{"robot_description": rd(tb_urdf), "use_sim_time": True}])
+    tbcmt = ["--controller-manager-timeout", "120"]
+    diff_spawner = Node(package="controller_manager", executable="spawner", output="screen",
+                        arguments=["diffdrive_controller", "-c", "/tb/controller_manager"] + tbcmt)
+    jsb_tb = Node(package="controller_manager", executable="spawner", output="screen",
+                  arguments=["joint_state_broadcaster", "-c", "/tb/controller_manager"] + tbcmt)
+    # (El árbol tb_base_link->tb_base_footprint/tb_base_scan/ruedas lo publica tb_rsp desde el URDF.)
 
-    # static TF world -> map (identidad si el mapa coincide con el origen del mundo).
-    tf_world_map = Node(package="tf2_ros", executable="static_transform_publisher",
-                        arguments=["0", "0", "0", "0", "0", "0", "world", "map"])
-
-    nav2 = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory("nav2_bringup"), "launch", "bringup_launch.py")),
-        launch_arguments={
-            "map": os.path.join(pkg, "config", "mapa.yaml"),
-            "params_file": os.path.join(pkg, "config", "nav2_params.yaml"),  # parcheado use_sim_time:true
-            "use_sim_time": "true",
-            "autostart": "true",
-        }.items(),
-    )
-
+    # ================= Etapa 1 (cámara, detección, banda, MQTT) =================
     deteccion = Node(package="clasificador_rojo", executable="deteccion_rojo",
                      parameters=[{"use_sim_time": True}], output="screen")
+    # (3a) orquestador en etapa 2: pick&place + banda; el TurtleBot se prueba aparte por /cmd_vel.
     orquestador = Node(package="clasificador_rojo", executable="orquestador",
-                       parameters=[{"use_sim_time": True, "etapa": 3,
-                                    "estacion_x": -2.0, "estacion_y": -1.5}], output="screen")
+                       parameters=[{"use_sim_time": True, "etapa": 2,
+                                    "estacion_x": EST_X, "estacion_y": EST_Y}], output="screen")
     mqtt = Node(package="mqtt_client", executable="mqtt_client", name="mqtt_client",
                 parameters=[os.path.join(pkg, "config", "mqtt_params.yaml")], output="screen")
     plc = Node(package="clasificador_rojo", executable="plc_sim.py", output="screen")
 
-    wait_ur5e = WaitForControllerConnection(
-        target_driver=ur5e_driver,
-        nodes_to_start=[traj_spawner, jsb_spawner, move_group, brazo])
-    wait_tb = WaitForControllerConnection(
-        target_driver=tb_driver,
-        nodes_to_start=[diff_spawner, jsb_tb, nav2])
-    wait_cam = WaitForControllerConnection(
-        target_driver=camara,
-        nodes_to_start=[deteccion, orquestador, mqtt, plc])
-
     return LaunchDescription([
-        webots, webots._supervisor, camara, supervisor,
-        spawn_ur5e, ur5e_driver_delayed, tf_world_ur5e,
-        footprint, tb_driver, tf_world_map,
-        wait_ur5e, wait_tb, wait_cam,
-        RegisterEventHandler(
-            OnProcessExit(target_action=webots, on_exit=[EmitEvent(event=Shutdown())])),
+        webots, webots._supervisor,
+        camara, supervisor,
+        rsp, tf_world_ur5e,
+        tb_driver, tb_rsp,
+        WaitForControllerConnection(
+            target_driver=camara,
+            nodes_to_start=[spawn_ur5e, deteccion, orquestador, mqtt, plc]),
+        RegisterEventHandler(OnProcessIO(
+            target_action=spawn_ur5e,
+            on_stdout=lambda event: get_webots_driver_node(event, ur5e_driver))),
+        WaitForControllerConnection(
+            target_driver=ur5e_driver,
+            nodes_to_start=[traj_spawner, jsb_spawner, move_group, brazo]),
+        WaitForControllerConnection(
+            target_driver=tb_driver,
+            nodes_to_start=[diff_spawner, jsb_tb]),
+        RegisterEventHandler(OnProcessExit(target_action=webots, on_exit=[EmitEvent(event=Shutdown())])),
     ])

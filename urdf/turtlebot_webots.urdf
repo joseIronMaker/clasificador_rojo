@@ -1,33 +1,52 @@
 <?xml version="1.0" ?>
 <robot name="TurtleBot3 Burger Webots">
+    <!-- Árbol mínimo COMPLETO. Necesario porque: (a) robot_state_publisher necesita >=1 <link> para
+         parsear y publicar /tb/robot_description; (b) en cuanto hay links, el parser de ros2_control
+         EXIGE que los joints referidos ("left/right wheel motor") existan como <joint> reales (si no
+         -> "Joint not found in URDF" -> el driver aborta con exit 250 y congela la sim). Frames tb_
+         para no chocar con el base_link del UR5e en el /tf global. -->
+    <link name="tb_base_link"/>
+    <link name="left_wheel_link"/>
+    <link name="right_wheel_link"/>
+    <link name="tb_base_footprint"/>
+    <link name="tb_base_scan"/>
+
+    <joint name="left wheel motor" type="continuous">
+        <parent link="tb_base_link"/>
+        <child link="left_wheel_link"/>
+        <origin xyz="0 0.08 0" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+    </joint>
+    <joint name="right wheel motor" type="continuous">
+        <parent link="tb_base_link"/>
+        <child link="right_wheel_link"/>
+        <origin xyz="0 -0.08 0" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+    </joint>
+    <joint name="tb_footprint_joint" type="fixed">
+        <parent link="tb_base_link"/>
+        <child link="tb_base_footprint"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    <joint name="tb_scan_joint" type="fixed">
+        <parent link="tb_base_link"/>
+        <child link="tb_base_scan"/>
+        <origin xyz="0 0 0.18" rpy="0 0 0"/>
+    </joint>
+
     <webots>
+        <!-- Lidar RobotisLds01 -> /scan, frame tb_base_scan (coincide con el joint de arriba). -->
         <device reference="LDS-01" type="Lidar">
             <ros>
                 <enabled>true</enabled>
                 <updateRate>5</updateRate>
                 <topicName>/scan</topicName>
-                <alwaysOn>false</alwaysOn>
-                <frameName>LDS-01</frameName>
+                <alwaysOn>true</alwaysOn>
+                <frameName>tb_base_scan</frameName>
             </ros>
         </device>
 
-        <plugin type="webots_ros2_driver::Ros2IMU">
-            <enabled>true</enabled>
-            <updateRate>20</updateRate>
-            <topicName>/imu</topicName>
-            <alwaysOn>false</alwaysOn>
-            <frameName>imu_link</frameName>
-            <inertialUnitName>inertial_unit</inertialUnitName>
-            <gyroName>gyro</gyroName>
-            <accelerometerName>accelerometer</accelerometerName>
-        </plugin>
-
         <plugin type="webots_ros2_control::Ros2Control" />
-
-        <!-- type="package_name.file_name.class_name" -->
-        <plugin type="webots_ros2_turtlebot.plugin_example.PluginExample">
-            <parameterExample>someValue</parameterExample>
-        </plugin>
     </webots>
 
     <ros2_control name="WebotsControl" type="system">

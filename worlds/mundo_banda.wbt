@@ -4,6 +4,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projec
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/objects/floors/protos/Floor.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/objects/factory/conveyors/protos/ConveyorBelt.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/robots/robotis/turtlebot/protos/TurtleBot3Burger.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/devices/robotis/protos/RobotisLds01.proto"
 
 WorldInfo {
   info [
@@ -120,6 +122,29 @@ DEF BOX_ROJA Solid {
 }
 
 # (Sin cajas señuelo: el usuario pidió dejar SOLO la caja roja.)
+
+# --- TurtleBot3 Burger (Etapa 3): recibe la caja del brazo (dock = sitio de descarga del UR5e) y la
+# lleva a la estación por Nav2. DEF TURTLEBOT -> el plugin lo sigue por Supervisor para pegar la caja
+# encima. En Etapa 1/2 su controlador no se conecta (queda inerte). Lidar RobotisLds01 -> /scan. ---
+DEF TURTLEBOT TurtleBot3Burger {
+  translation -0.55 -0.45 0
+  controller "<extern>"
+  controllerArgs [
+    ""
+  ]
+  extensionSlot [
+    Solid {
+      name "imu_link"
+    }
+    GPS {
+    }
+    InertialUnit {
+      name "inertial_unit"
+    }
+    RobotisLds01 {
+    }
+  ]
+}
 
 # --- Estacion de recoleccion (marca para el TurtleBot en la Etapa 3) ---
 DEF ESTACION Solid {
