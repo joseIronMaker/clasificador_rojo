@@ -146,12 +146,12 @@ DEF TURTLEBOT TurtleBot3Burger {
   ]
 }
 
-# --- Estacion de recoleccion: PAD plano a ras de suelo (tipo plataforma de dock) ---
-# Antes era una caja de 0.10 m -> el robot (goal = su centro) se HUNDÍA en ella (sin colisión, y muy
-# baja para que el lidar la vea). Ahora 0.02 m de alto -> el TurtleBot se posa ENCIMA limpio, como un
-# marcador de "zona de recolección" en el piso. 0.6x0.6 para enmarcar al robot (~0.14 m).
+# --- Estacion de recoleccion: marca verde casi a RAS de suelo (5 mm) ---
+# El robot apoya en z=0 y el Floor oculta todo z<=0, así que el pad DEBE sobresalir algo y las llantas
+# (radio 0.033) se traslapan con su grosor. A 0.005 m el traslape es mínimo -> el TurtleBot se ve
+# POSADO encima, no hundido. 0.6x0.6 para enmarcar al robot (~0.14 m). Es solo un marcador (sin colisión).
 DEF ESTACION Solid {
-  translation -2.0 -1.5 0.01
+  translation -2.0 -1.5 0.0025
   children [
     Shape {
       appearance PBRAppearance {
@@ -160,7 +160,7 @@ DEF ESTACION Solid {
         metalness 0
       }
       geometry Box {
-        size 0.6 0.6 0.02
+        size 0.6 0.6 0.005
       }
     }
   ]
