@@ -52,7 +52,10 @@ controller_server:
     # RPP (Regulated Pure Pursuit): ligero (sin muestreo de trayectorias) -> ideal en WSL2 sin GPU.
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.2
+      # 0.17 (no 0.22 máx): el motor de rueda del Burger satura a 6.67 rad/s; a 0.2 m/s + giro la rueda
+      # externa pedía ~6.8 -> WARNING "exceeds maxVelocity" en bucle (inocuo, Webots lo recorta). A 0.17
+      # las ruedas quedan bajo el límite y la consola no se inunda.
+      desired_linear_vel: 0.17
       lookahead_dist: 0.6
       min_lookahead_dist: 0.3
       max_lookahead_dist: 0.9

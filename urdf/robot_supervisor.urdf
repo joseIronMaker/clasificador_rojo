@@ -10,9 +10,9 @@
       <belt_speed>0.25</belt_speed>
       <world_frame>world</world_frame>
       <grip_frame>tool0</grip_frame>
-      <tb_frame>base_link</tb_frame>
-      <grip_offset_z>-0.05</grip_offset_z>
-      <tb_offset_z>0.16</tb_offset_z>
+      <!-- ride_z: altura del CENTRO de la caja (cubo 0.12) sobre el origen del TurtleBot al viajar.
+           0.20 -> base de la caja en ~0.14 (sobre el cuerpo del Burger ~0.19 alto), no se encaja. -->
+      <ride_z>0.20</ride_z>
     </plugin>
   </webots>
   <link name="base_link"/>
