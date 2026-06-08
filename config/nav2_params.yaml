@@ -49,7 +49,10 @@ controller_server:
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.25
+      # 0.15 m: mejora el regreso al dock (antes 0.25 -> ~0.2 m corto) SIN romperlo. 0.08 era demasiado
+      # apretado para un robot diferencial -> no lograba posicionarse y abortaba. Para "exacto de verdad"
+      # haría falta teletransporte+localización (no solo apretar la tolerancia).
+      xy_goal_tolerance: 0.15
       yaw_goal_tolerance: 0.25
     # RPP (Regulated Pure Pursuit): ligero (sin muestreo de trayectorias) -> ideal en WSL2 sin GPU.
     FollowPath:
@@ -110,8 +113,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.2   # 0.2 (no 0.3): el dock está a 0.3 m del pedestal -> alcanzable y la
-                                # caja salta menos al montarse cuando el robot vuelve al dock en reset
+        inflation_radius: 0.2   # 0.2 (verificado): deja el dock alcanzable y la navegación segura
       always_send_full_costmap: True
 
 global_costmap:
@@ -146,8 +148,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.2   # 0.2 (no 0.3): el dock está a 0.3 m del pedestal -> alcanzable y la
-                                # caja salta menos al montarse cuando el robot vuelve al dock en reset
+        inflation_radius: 0.2   # 0.2 (verificado): deja el dock alcanzable y la navegación segura
       always_send_full_costmap: True
 
 behavior_server:
