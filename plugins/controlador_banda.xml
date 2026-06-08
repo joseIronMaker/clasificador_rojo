@@ -1,0 +1,10 @@
+<library path="controlador_banda">
+  <class type="clasificador_rojo::ControladorBanda" base_class_type="webots_ros2_driver::PluginInterface">
+    <description>
+      Plugin C++ de webots_ros2_driver. Controla la velocidad de la banda transportadora
+      (campo 'speed' del nodo DEF CONVEYOR_BELT) en función de /conveyor/enable, y realiza
+      el agarre por Supervisor (teletransporta DEF BOX_ROJA al gripper del UR5e y luego al
+      TurtleBot) en función de /agarre.
+    </description>
+  </class>
+</library>

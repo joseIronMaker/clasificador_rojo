@@ -1,0 +1,24 @@
+# Configuración de mqtt_client (ika-rwth-aachen) — puente EMQX <-> ROS2.
+#
+#  MQTT  "banda/comando"  (payload texto "start"/"stop", primitive)
+#     ->  ROS2 /banda/comando (std_msgs/String)  -> lo consume el orquestador.
+#  ROS2  /planta/estado (std_msgs/String)  ->  MQTT "planta/estado".
+#
+# NOTA: verificar el esquema exacto contra la versión instalada de ros-jazzy-mqtt-client
+# (ros2 run mqtt_client mqtt_client --ros-args -p ...). Estructura ROS2 de ika-rwth-aachen:
+/**:
+  ros__parameters:
+    broker:
+      host: localhost
+      port: 1883
+    bridge:
+      mqtt2ros:
+        mqtt_topics: ["banda/comando"]
+        banda/comando:
+          ros_topic: "/banda/comando"
+          primitive: true
+      ros2mqtt:
+        ros_topics: ["/planta/estado"]
+        /planta/estado:
+          mqtt_topic: "planta/estado"
+          primitive: true

@@ -1,0 +1,39 @@
+# Límites de joints para MoveIt (namespace robot_description_planning).
+#
+# MOTIVO: la URDF del UR5e trae límites de VELOCIDAD pero NO de ACELERACIÓN. El adaptador de
+# respuesta de MoveIt `AddTimeOptimalParameterization` (TOTG) EXIGE aceleración:
+#   "No acceleration limit was defined for joint shoulder_pan_joint!" -> el move() falla.
+# Aquí habilitamos has_acceleration_limits + max_acceleration para los 6 joints del brazo.
+# (El joint_limits.yaml stock del UR trae has_acceleration_limits:false y tags !degrees que
+#  yaml.safe_load no parsea, por eso definimos uno limpio en radianes.)
+joint_limits:
+  shoulder_pan_joint:
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  shoulder_lift_joint:
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  elbow_joint:
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  wrist_1_joint:
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  wrist_2_joint:
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  wrist_3_joint:
+    has_velocity_limits: true
+    max_velocity: 3.141592653589793
+    has_acceleration_limits: true
+    max_acceleration: 5.0

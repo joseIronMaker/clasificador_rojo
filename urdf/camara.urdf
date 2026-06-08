@@ -1,0 +1,17 @@
+<?xml version="1.0" ?>
+<!-- Robot "cámara" de Webots: expone el dispositivo Camera a ROS2.
+     Publica /camera/image_color (sensor_msgs/Image, BGRA8) y /camera/camera_info.
+     robot_name del WebotsController debe ser "camera_robot" (= name del Robot en el .wbt). -->
+<robot name="camera_robot">
+  <webots>
+    <device reference="camera" type="Camera">
+      <ros>
+        <enabled>true</enabled>
+        <alwaysOn>true</alwaysOn>
+        <topicName>/camera</topicName>
+        <frameName>camera_link</frameName>
+      </ros>
+    </device>
+  </webots>
+  <link name="camera_link"/>
+</robot>

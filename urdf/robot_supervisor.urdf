@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<!-- Robot "supervisor" de Webots (supervisor TRUE en el .wbt). Carga el plugin C++
+     ControladorBanda, que controla la velocidad de la banda (/conveyor/enable) y el agarre
+     por Supervisor (/agarre): teletransporta DEF BOX_ROJA para que siga al gripper (grip_frame)
+     o al TurtleBot (tb_frame), leyendo sus poses por TF en world_frame.
+     robot_name del WebotsController debe ser "robot_supervisor". -->
+<robot name="robot_supervisor">
+  <webots>
+    <plugin type="clasificador_rojo::ControladorBanda">
+      <belt_speed>0.25</belt_speed>
+      <world_frame>world</world_frame>
+      <grip_frame>tool0</grip_frame>
+      <tb_frame>base_link</tb_frame>
+      <grip_offset_z>-0.05</grip_offset_z>
+      <tb_offset_z>0.16</tb_offset_z>
+    </plugin>
+  </webots>
+  <link name="base_link"/>
+</robot>

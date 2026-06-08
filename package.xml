@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>clasificador_rojo</name>
+  <version>0.1.0</version>
+  <description>
+    Proyecto final: banda transportadora + cámara (detección de cajas rojas) + UR5e (MoveIt2)
+    + TurtleBot3 (Nav2), todo en Webots y controlable por MQTT (EMQX). Nodos en C++ (rclcpp)
+    salvo el PLC simulado (Python/paho-mqtt). El plugin C++ controla la banda y el agarre por
+    Supervisor de Webots.
+  </description>
+  <maintainer email="viad@soyuo.mx">jose</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Compilación C++ -->
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>libopencv-dev</depend>
+  <depend>control_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>webots_ros2_driver</depend>
+  <depend>pluginlib</depend>
+  <!-- Etapa 2 (brazo C++ con MoveIt2) -->
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_msgs</depend>
+
+  <!-- Dependencias de ejecución (lanzamiento) -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>webots_ros2_universal_robot</exec_depend>
+  <exec_depend>webots_ros2_turtlebot</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>navigation2</exec_depend>
+  <exec_depend>mqtt_client</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>diff_drive_controller</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

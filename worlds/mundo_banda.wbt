@@ -1,0 +1,140 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/objects/floors/protos/Floor.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/objects/factory/conveyors/protos/ConveyorBelt.proto"
+
+WorldInfo {
+  info [
+    "Proyecto final: banda + camara (cajas rojas) + UR5e + TurtleBot + MQTT"
+  ]
+  basicTimeStep 16
+}
+Viewpoint {
+  orientation -0.35 0.30 0.89 1.85
+  position 3.2 -2.6 2.6
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+DirectionalLight {
+  direction 0.3 -0.6 -1
+  intensity 3
+  castShadows TRUE
+}
+# Suelo GRIS uniforme (no el tablero rojo/tan por defecto): la cámara cenital ve floor a los lados
+# de la banda; con cuadros rojos los detectaba como "caja roja" (falso positivo constante). Gris ->
+# el ÚNICO objeto rojo de la escena es la caja -> detección inequívoca.
+Floor {
+  size 10 10
+  appearance PBRAppearance {
+    baseColor 0.5 0.5 0.55
+    roughness 1
+    metalness 0
+  }
+}
+
+# --- Banda transportadora (controlada por el plugin via DEF) ---
+DEF CONVEYOR_BELT ConveyorBelt {
+  translation 0 0 0
+  name "banda"
+  size 2.5 0.5 0.6
+  speed 0.0
+}
+
+# --- Camara cenital JUSTO sobre el frente del robot (x=0.0 ~ robot en x=-0.10) ---
+# FOV estrecho (0.6 rad): ve solo una franja delante del brazo -> dispara "caja roja" cuando la
+# caja llega ENFRENTE del robot (no antes), ahí se detiene la banda y el brazo la recoge.
+DEF CAM_ROBOT Robot {
+  translation 0.15 0 1.6
+  children [
+    Camera {
+      rotation 0 1 0 1.5708
+      name "camera"
+      fieldOfView 0.6
+      width 320
+      height 240
+    }
+  ]
+  name "camera_robot"
+  controller "<extern>"
+  supervisor FALSE
+}
+
+# --- Supervisor (controla banda y agarre via plugin C++) ---
+DEF ROBOT_SUPERVISOR Robot {
+  name "robot_supervisor"
+  controller "<extern>"
+  supervisor TRUE
+}
+
+# --- Pedestal de soporte del UR5e (Solid ESTATICO = sin Physics -> inmovil) ---
+# CRITICO: el UR5e se spawnea en (-0.10 -0.45 0.60); sin este soporte la base cae 0.6 m,
+# el brazo golpea el suelo (miles de contactos) y los motores de posicion divergen
+# (joints comandados a +/-miles de rad -> flood en consola). El stock usa un pedestal igual.
+# y=-0.45 (no -0.65): acerca el brazo a la banda (caja en y=0) para que el alcance del pick
+# quede holgado (~0.57 m, no ~0.74 m al borde del workspace) -> IK del top-down siempre resuelve.
+DEF UR5E_PEDESTAL Solid {
+  translation -0.10 -0.45 0.30
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.25 0.25 0.3
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.3 0.3 0.6
+      }
+    }
+  ]
+  name "ur5e_pedestal"
+  boundingObject Box {
+    size 0.3 0.3 0.6
+  }
+}
+
+# --- Caja roja objetivo (CINEMATICA: sin physics ni boundingObject) ---
+# La maneja el plugin controlador_banda por teletransporte: la avanza por la banda (mientras
+# /conveyor/enable=true), la deja quieta al detenerse la banda, y al "attach" la pega RIGIDA al
+# gripper (offset capturado, sin salto). Sin física ni colisión NO puede generar contactos -> el
+# agarre por teletransporte jamás colapsa el solver ("physics step could not be computed").
+# Sigue siendo un Shape rojo: la cámara la detecta igual (la detección es por color).
+DEF BOX_ROJA Solid {
+  translation -1.2 0 0.67
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.12 0.12 0.12
+      }
+    }
+  ]
+  name "caja_roja"
+}
+
+# (Sin cajas señuelo: el usuario pidió dejar SOLO la caja roja.)
+
+# --- Estacion de recoleccion (marca para el TurtleBot en la Etapa 3) ---
+DEF ESTACION Solid {
+  translation -2.0 -1.5 0.05
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.1 0.7 0.2
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.5 0.5 0.1
+      }
+    }
+  ]
+  name "estacion"
+}
