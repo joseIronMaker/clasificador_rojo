@@ -110,9 +110,12 @@ private:
       RCLCPP_INFO(get_logger(), "MQTT: stop (banda detenida)");
     } else if (c == "start" || c == "START" || c == "arrancar") {
       manual_stop_ = false;
-      // No reanudar si hay un pick&place/navegación en curso (Etapa 2/3).
-      if (etapa_ >= 2 && estado_ == "PROCESANDO") {
-        RCLCPP_INFO(get_logger(), "MQTT: start (se reanudará al terminar el ciclo)");
+      // NO arrancar la banda si hay un ciclo en curso (PROCESANDO) o si el robot está volviendo al
+      // dock tras un reinicio (REINICIANDO): si arranca ahora, la caja llegaría sin que el robot esté
+      // en la zona donde el brazo la coloca. Se arrancará sola cuando el robot llegue al dock.
+      if (etapa_ >= 2 && (estado_ == "PROCESANDO" || estado_ == "REINICIANDO")) {
+        RCLCPP_INFO(get_logger(), "start ignorado: %s en curso (la banda arrancará al terminar)",
+                    estado_.c_str());
       } else {
         caja_frames_ = 0;
         setBanda(true);
@@ -128,6 +131,7 @@ private:
       publicarAgarre("reset");  // el plugin recoloca la caja al inicio de la banda (estado ON_BELT)
       if (etapa_ >= 3) {
         estado_ = "REINICIANDO";
+        dock_reintentos_ = 0;
         RCLCPP_INFO(get_logger(), "Reset: caja a la banda; mando el robot de vuelta al dock");
         navegarADock();
       } else {
@@ -138,12 +142,17 @@ private:
     }
   }
 
+  void reintentarDock() {  // reintenta la vuelta al dock tras 3 s, con la banda PARADA
+    timer_retry_ = create_wall_timer(3s, [this]() {
+      timer_retry_->cancel();
+      navegarADock();
+    });
+  }
+
   void navegarADock() {
     if (!cli_nav_->wait_for_action_server(5s)) {
-      RCLCPP_WARN(get_logger(), "Nav2 no disponible para volver al dock; arranco la banda igual");
-      publicarAgarre("reset");
-      setBanda(true);
-      estado_ = "BANDA_ON";
+      RCLCPP_WARN(get_logger(), "Nav2 no disponible para volver al dock; reintento (banda PARADA)");
+      reintentarDock();
       return;
     }
     NavigateToPose::Goal goal;
@@ -156,17 +165,32 @@ private:
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions opts;
     opts.result_callback =
         [this](const rclcpp_action::ClientGoalHandle<NavigateToPose>::WrappedResult &result) {
-          if (result.code != rclcpp_action::ResultCode::SUCCEEDED)
-            RCLCPP_WARN(get_logger(), "vuelta al dock no completó (code=%d); arranco la banda igual",
-                        static_cast<int>(result.code));
-          publicarAgarre("reset");  // asegura la caja en la banda
-          caja_frames_ = 0;
-          setBanda(true);
-          estado_ = "BANDA_ON";
-          RCLCPP_INFO(get_logger(), "Robot en el dock -> banda en marcha (ciclo reiniciado)");
+          if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+            // Robot CONFIRMADO en el dock -> SOLO AHORA arranca la banda (no antes de que llegue a la
+            // zona donde el brazo coloca la caja).
+            dock_reintentos_ = 0;
+            publicarAgarre("reset");  // asegura la caja en la banda
+            caja_frames_ = 0;
+            setBanda(true);
+            estado_ = "BANDA_ON";
+            RCLCPP_INFO(get_logger(), "Robot de vuelta en el dock -> banda en marcha (ciclo reiniciado)");
+          } else if (++dock_reintentos_ <= 5) {
+            // NO llegó -> la banda SIGUE PARADA y se reintenta la vuelta al dock.
+            RCLCPP_WARN(get_logger(),
+                        "vuelta al dock no completó (code=%d); reintento %d/5 (banda PARADA)",
+                        static_cast<int>(result.code), dock_reintentos_);
+            publicarAgarre("reset");  // mantener la caja en la banda
+            reintentarDock();
+          } else {
+            // Tras 5 intentos sin llegar: la banda queda PARADA esperando intervención (▶ o ⟳).
+            RCLCPP_ERROR(get_logger(), "no pude volver al dock tras 5 intentos; banda PARADA");
+            dock_reintentos_ = 0;
+            estado_ = "LISTO";
+          }
         };
     cli_nav_->async_send_goal(goal, opts);
-    RCLCPP_INFO(get_logger(), "Reinicio: robot -> dock (%.2f, %.2f)", dock_x_, dock_y_);
+    RCLCPP_INFO(get_logger(), "Reinicio: robot -> dock (%.2f, %.2f) [banda PARADA hasta llegar]",
+                dock_x_, dock_y_);
   }
 
   void onCaja(const std_msgs::msg::Bool::SharedPtr m) {
@@ -252,6 +276,7 @@ private:
   double dock_x_{-0.55}, dock_y_{-0.45};
   bool manual_stop_{false};
   bool banda_on_{false};
+  int dock_reintentos_{0};
   std::string estado_{"ARRANCANDO"};
 
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_banda_;
@@ -263,6 +288,7 @@ private:
   rclcpp_action::Client<NavigateToPose>::SharedPtr cli_nav_;
   rclcpp::TimerBase::SharedPtr timer_init_;
   rclcpp::TimerBase::SharedPtr timer_estado_;
+  rclcpp::TimerBase::SharedPtr timer_retry_;
 };
 
 int main(int argc, char **argv) {
