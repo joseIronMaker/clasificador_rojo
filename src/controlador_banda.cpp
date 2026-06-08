@@ -71,8 +71,13 @@ public:
     else RCLCPP_WARN(node_->get_logger(), "[controlador_banda] falta DEF CONVEYOR_BELT");
 
     box_ = wb_supervisor_node_get_from_def("BOX_ROJA");
-    if (box_) box_tr_ = wb_supervisor_node_get_field(box_, "translation");
-    else RCLCPP_WARN(node_->get_logger(), "[controlador_banda] falta DEF BOX_ROJA");
+    if (box_) {
+      box_tr_ = wb_supervisor_node_get_field(box_, "translation");
+      if (box_tr_) {  // guarda la posición inicial en la banda -> "reset" la devuelve aquí
+        const double *p0 = wb_supervisor_field_get_sf_vec3f(box_tr_);
+        box_init_[0] = p0[0]; box_init_[1] = p0[1]; box_init_[2] = p0[2];
+      }
+    } else RCLCPP_WARN(node_->get_logger(), "[controlador_banda] falta DEF BOX_ROJA");
 
     // DEF TURTLEBOT: la caja lo seguirá (RIDE_TB) para viajar a la estación montada encima.
     tb_ = wb_supervisor_node_get_from_def("TURTLEBOT");
@@ -164,6 +169,10 @@ private:
     if (c == "attach") { box_state_ = Box::GRIP; have_offset_ = false; }
     else if (c == "to_turtlebot") { box_state_ = Box::RIDE_TB; }  // a viajar encima del TurtleBot
     else if (c == "release") { box_state_ = Box::DELIVERED; }
+    else if (c == "reset") {  // REINICIAR: la caja vuelve al inicio de la banda
+      if (box_tr_) wb_supervisor_field_set_sf_vec3f(box_tr_, box_init_);
+      box_state_ = Box::ON_BELT; have_offset_ = false;
+    }
     RCLCPP_INFO(node_->get_logger(), "[agarre] %s -> estado caja", c.c_str());
   }
 
@@ -174,6 +183,7 @@ private:
   WbNodeRef tb_{0};
   WbFieldRef tb_tr_{0};
   double belt_speed_{0.25}, dt_{0.016}, ride_z_{0.15};
+  double box_init_[3]{-1.2, 0.0, 0.67};  // posición inicial de la caja en la banda (para "reset")
   std::string world_frame_, grip_frame_;
   Box box_state_{Box::ON_BELT};
   bool belt_on_{false}, have_offset_{false}, warned_{false};

@@ -35,8 +35,12 @@ public:
     est_x_ = declare_parameter<double>("estacion_x", -2.0);
     est_y_ = declare_parameter<double>("estacion_y", -1.5);
     est_yaw_ = declare_parameter<double>("estacion_yaw", 0.0);
+    dock_x_ = declare_parameter<double>("dock_x", -0.55);   // sitio del TurtleBot (recibe la caja)
+    dock_y_ = declare_parameter<double>("dock_y", -0.45);
 
     pub_banda_ = create_publisher<std_msgs::msg::Bool>("/conveyor/enable", 10);
+    pub_estado_ = create_publisher<std_msgs::msg::String>("/estado", 10);  // para el panel de control
+    pub_agarre_ = create_publisher<std_msgs::msg::String>("/agarre", 10);  // "reset" -> caja a la banda
     sub_caja_ = create_subscription<std_msgs::msg::Bool>(
         "/caja_roja", 10, std::bind(&Orquestador::onCaja, this, std::placeholders::_1));
     sub_cmd_ = create_subscription<std_msgs::msg::String>(
@@ -44,6 +48,13 @@ public:
 
     cli_pick_ = create_client<Trigger>("/pick_place");
     cli_nav_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
+
+    // Publica el estado a 2 Hz para el panel de control (control_gui.py).
+    timer_estado_ = create_wall_timer(500ms, [this]() {
+      std_msgs::msg::String s;
+      s.data = estado_ + (banda_on_ ? " | banda:ON" : " | banda:OFF");
+      pub_estado_->publish(s);
+    });
 
     // Arranca la banda tras 2 s. En Etapa 2/3 ESPERA primero a que el brazo (/pick_place) esté
     // listo: move_group tarda ~10 s en inicializar; sin esto la caja llega a la cámara antes de
@@ -74,9 +85,16 @@ public:
 
 private:
   void setBanda(bool on) {
+    banda_on_ = on;
     std_msgs::msg::Bool b;
     b.data = on;
     pub_banda_->publish(b);
+  }
+
+  void publicarAgarre(const std::string &cmd) {
+    std_msgs::msg::String m;
+    m.data = cmd;
+    pub_agarre_->publish(m);
   }
 
   void onComando(const std_msgs::msg::String::SharedPtr m) {
@@ -97,7 +115,54 @@ private:
         estado_ = "BANDA_ON";
         RCLCPP_INFO(get_logger(), "MQTT: start (banda en marcha)");
       }
+    } else if (c == "reset" || c == "RESET" || c == "reiniciar") {
+      // REINICIAR el ciclo: caja de vuelta a la banda y robot de vuelta al dock (sin teletransporte
+      // del robot, que rompería la odometría) -> al llegar, banda en marcha y el ciclo se repite.
+      manual_stop_ = false;
+      caja_frames_ = 0;
+      setBanda(false);
+      publicarAgarre("reset");  // el plugin recoloca la caja al inicio de la banda (estado ON_BELT)
+      if (etapa_ >= 3) {
+        estado_ = "REINICIANDO";
+        RCLCPP_INFO(get_logger(), "Reset: caja a la banda; mando el robot de vuelta al dock");
+        navegarADock();
+      } else {
+        setBanda(true);
+        estado_ = "BANDA_ON";
+        RCLCPP_INFO(get_logger(), "Reset: caja a la banda; banda en marcha");
+      }
     }
+  }
+
+  void navegarADock() {
+    if (!cli_nav_->wait_for_action_server(5s)) {
+      RCLCPP_WARN(get_logger(), "Nav2 no disponible para volver al dock; arranco la banda igual");
+      publicarAgarre("reset");
+      setBanda(true);
+      estado_ = "BANDA_ON";
+      return;
+    }
+    NavigateToPose::Goal goal;
+    goal.pose.header.frame_id = "map";
+    goal.pose.header.stamp = now();
+    goal.pose.pose.position.x = dock_x_;
+    goal.pose.pose.position.y = dock_y_;
+    goal.pose.pose.orientation.w = 1.0;  // mirando +X (como el spawn del TurtleBot)
+
+    rclcpp_action::Client<NavigateToPose>::SendGoalOptions opts;
+    opts.result_callback =
+        [this](const rclcpp_action::ClientGoalHandle<NavigateToPose>::WrappedResult &result) {
+          if (result.code != rclcpp_action::ResultCode::SUCCEEDED)
+            RCLCPP_WARN(get_logger(), "vuelta al dock no completó (code=%d); arranco la banda igual",
+                        static_cast<int>(result.code));
+          publicarAgarre("reset");  // asegura la caja en la banda
+          caja_frames_ = 0;
+          setBanda(true);
+          estado_ = "BANDA_ON";
+          RCLCPP_INFO(get_logger(), "Robot en el dock -> banda en marcha (ciclo reiniciado)");
+        };
+    cli_nav_->async_send_goal(goal, opts);
+    RCLCPP_INFO(get_logger(), "Reinicio: robot -> dock (%.2f, %.2f)", dock_x_, dock_y_);
   }
 
   void onCaja(const std_msgs::msg::Bool::SharedPtr m) {
@@ -180,15 +245,20 @@ private:
   int frames_min_{3};
   int caja_frames_{0};
   double est_x_{-2.0}, est_y_{-1.5}, est_yaw_{0.0};
+  double dock_x_{-0.55}, dock_y_{-0.45};
   bool manual_stop_{false};
+  bool banda_on_{false};
   std::string estado_{"ARRANCANDO"};
 
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_banda_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_estado_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_agarre_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_caja_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_cmd_;
   rclcpp::Client<Trigger>::SharedPtr cli_pick_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr cli_nav_;
   rclcpp::TimerBase::SharedPtr timer_init_;
+  rclcpp::TimerBase::SharedPtr timer_estado_;
 };
 
 int main(int argc, char **argv) {

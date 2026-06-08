@@ -17,9 +17,11 @@ import subprocess
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import EmitEvent, RegisterEventHandler, TimerAction
+from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler, TimerAction
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit, OnProcessIO
 from launch.events import Shutdown
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 from webots_ros2_driver.webots_launcher import WebotsLauncher
@@ -199,11 +201,23 @@ def generate_launch_description():
                 parameters=[os.path.join(pkg, "config", "mqtt_params.yaml")], output="screen")
     plc = Node(package="clasificador_rojo", executable="plc_sim.py", output="screen")
 
+    # ================= Visualización (opcional: gui:=true) =================
+    # RViz (cámara/detección + mapa/costmaps/ruta/scan de Nav2) + panel de control (Tkinter).
+    gui = LaunchConfiguration("gui")
+    rviz = Node(package="rviz2", executable="rviz2", name="rviz2", output="screen",
+                arguments=["-d", os.path.join(pkg, "config", "etapa3.rviz")],
+                parameters=[{"use_sim_time": True}], condition=IfCondition(gui))
+    panel = Node(package="clasificador_rojo", executable="control_gui.py", output="screen",
+                 condition=IfCondition(gui))
+
     return LaunchDescription([
+        DeclareLaunchArgument("gui", default_value="false",
+                              description="abre RViz (cámara/detección + Nav2) y el panel de control"),
         webots, webots._supervisor,
         camara, supervisor,
         rsp, tf_world_ur5e, tf_map_odom,
         tb_driver, tb_rsp,
+        rviz, panel,
         WaitForControllerConnection(
             target_driver=camara,
             nodes_to_start=[spawn_ur5e, deteccion, orquestador, mqtt, plc]),

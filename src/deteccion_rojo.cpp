@@ -31,6 +31,8 @@ public:
         std::bind(&DeteccionRojo::onImage, this, std::placeholders::_1));
     pub_ = this->create_publisher<std_msgs::msg::Bool>("/caja_roja", 10);
     pub_centro_ = this->create_publisher<geometry_msgs::msg::Point>("/caja_roja/centro", 10);
+    // Imagen ANOTADA (caja resaltada + estado) para verla en RViz / rqt_image_view.
+    pub_img_ = this->create_publisher<sensor_msgs::msg::Image>("/deteccion/imagen", 10);
 
     RCLCPP_INFO(get_logger(), "deteccion_rojo iniciado (topic=%s, area_min=%d)",
                 image_topic.c_str(), area_min_);
@@ -63,13 +65,15 @@ private:
 
     double best_area = 0.0;
     cv::Point2f best_c(0, 0);
+    int best_idx = -1;
     bool found = false;
-    for (const auto &c : contours) {
-      const double a = cv::contourArea(c);
+    for (size_t i = 0; i < contours.size(); ++i) {
+      const double a = cv::contourArea(contours[i]);
       if (a >= area_min_ && a > best_area) {
         best_area = a;
+        best_idx = static_cast<int>(i);
         found = true;
-        const cv::Moments mu = cv::moments(c);
+        const cv::Moments mu = cv::moments(contours[i]);
         if (mu.m00 > 0) best_c = cv::Point2f(mu.m10 / mu.m00, mu.m01 / mu.m00);
       }
     }
@@ -84,12 +88,30 @@ private:
       p.z = best_area;
       pub_centro_->publish(p);
     }
+
+    // Imagen anotada para visualización: recuadro + centro + estado sobre el frame de la cámara.
+    if (pub_img_->get_subscription_count() > 0) {
+      cv::Mat anot = bgr.clone();
+      const cv::Scalar verde(0, 255, 0), rojo(0, 0, 255);
+      if (found && best_idx >= 0) {
+        const cv::Rect r = cv::boundingRect(contours[best_idx]);
+        cv::rectangle(anot, r, verde, 2);
+        cv::circle(anot, best_c, 4, verde, -1);
+        cv::putText(anot, "CAJA ROJA", cv::Point(r.x, std::max(0, r.y - 6)),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, verde, 2);
+      }
+      cv::putText(anot, found ? "DETECTADA -> banda STOP" : "buscando...",
+                  cv::Point(6, 18), cv::FONT_HERSHEY_SIMPLEX, 0.5, found ? verde : rojo, 1);
+      auto im = cv_bridge::CvImage(msg->header, "bgr8", anot).toImageMsg();
+      pub_img_->publish(*im);
+    }
   }
 
   int area_min_{1200};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_;
   rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr pub_centro_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub_img_;
 };
 
 int main(int argc, char **argv) {
