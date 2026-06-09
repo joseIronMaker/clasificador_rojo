@@ -64,8 +64,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/brazo.cpp")
   install(TARGETS brazo DESTINATION lib/${PROJECT_NAME})
 endif()
 
-# ---------- Scripts Python (PLC simulado + panel de control) ----------
-install(PROGRAMS scripts/plc_sim.py scripts/control_gui.py
+# ---------- Scripts Python (PLC/monitor + panel de control) ----------
+install(PROGRAMS scripts/plc_sim.py scripts/control_gui.py scripts/monitor_condicion.py
   DESTINATION lib/${PROJECT_NAME})
 
 # ---------- Recursos (mundos, urdf, configs, lanzamientos) ----------

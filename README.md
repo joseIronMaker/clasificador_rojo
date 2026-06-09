@@ -26,9 +26,10 @@ Este proyecto es la materialización del patrón de **Industria 4.0** del curso:
 6. [El grafo de ROS 2](#6-el-grafo-de-ros-2)
 7. [El ciclo completo (secuencia y estados)](#7-el-ciclo-completo)
 8. [El gemelo digital — y por qué Webots (Parte C)](#8-el-gemelo-digital--y-por-qué-webots)
-9. [Edge vs. Cloud — dónde corre la inteligencia](#9-edge-vs-cloud)
-10. [Cómo ejecutar](#10-cómo-ejecutar)
-11. [Estructura del repositorio](#11-estructura-del-repositorio)
+9. [Monitoreo de condición y mantenimiento predictivo](#9-monitoreo-de-condición-y-mantenimiento-predictivo)
+10. [Edge vs. Cloud — dónde corre la inteligencia](#10-edge-vs-cloud)
+11. [Cómo ejecutar](#11-cómo-ejecutar)
+12. [Estructura del repositorio](#12-estructura-del-repositorio)
 
 ---
 
@@ -159,9 +160,9 @@ El paquete `ros-jazzy-mqtt-client` (config en [`config/mqtt_params.yaml`](config
 
 ### 4.3 Conceptos del curso, aplicados
 
-- **QoS** — los comandos (`banda/comando`) son críticos pero idempotentes → **QoS 1** (*at least once*). La telemetría del PLC tolera pérdidas → **QoS 0**.
-- **Retained** — el último estado del PLC queda retenido: un dashboard que se conecta tarde ve el estado actual al instante. *(Aprendimos a limpiarlo con `mosquitto_pub -r -n` cuando un comando viejo quedaba pegado.)*
-- **LWT (Last Will)** — un despliegue de producción declararía un *Last Will* en cada nodo de campo para detectar caídas; aquí está documentado como el siguiente paso hacia robustez.
+- **QoS** — los comandos (`banda/comando`) son críticos → **QoS 1** (*at least once*). La telemetría del PLC (`monitor_condicion`) se publica con **QoS 1** y **retenida**.
+- **Retained** — el último estado del PLC queda **retenido**: un dashboard que se conecta tarde ve el estado actual al instante. *(Aprendimos a limpiarlo con `mosquitto_pub -r -n` cuando un comando viejo quedaba pegado.)*
+- **LWT (Last Will)** — **implementado**: `monitor_condicion` declara un *Last Will*; si el nodo de campo cae, el broker publica `{"estado":"OFFLINE"}` retenido y el dashboard detecta la caída.
 - **Broker industrial** — usamos **EMQX** (no Mosquitto): escala a millones de conexiones y trae dashboard web (`:18083`), más cercano a un entorno real.
 
 ---
@@ -207,6 +208,9 @@ flowchart LR
     NAV -->|/cmd_vel| TBD(["tb driver"])
     SUP -->|/caja_roja/pos| BRAZO
     ORQ -->|/estado| GUI
+    ORQ -->|/conveyor/enable| MON(["monitor_condicion"])
+    MON -->|"/planta/temperatura·alarma"| GUI
+    GUI -->|/planta/enfriamiento_cmd| MON
     TBD -->|/scan| NAV
 ```
 
@@ -222,6 +226,9 @@ flowchart LR
 | `/pick_place` | `std_srvs/Trigger` | orquestador → brazo |
 | `/navigate_to_pose` | `nav2_msgs/action/NavigateToPose` | orquestador → Nav 2 |
 | `/scan`, `/plan` | `LaserScan`, `Path` | TurtleBot/Nav 2 → costmaps |
+| `/planta/temperatura` | `std_msgs/Float32` | monitor_condicion → panel / RViz |
+| `/planta/alarma`, `/planta/enfriamiento` | `std_msgs/Bool` | monitor_condicion → panel |
+| `/planta/enfriamiento_cmd` | `std_msgs/Bool` | panel → monitor_condicion (enfriar a mano) |
 
 ---
 
@@ -316,7 +323,54 @@ El curso propone **ROS 2 + Gazebo** como gemelo digital. Elegimos **Webots**, y 
 
 ---
 
-## 9. Edge vs. Cloud
+## 9. Monitoreo de condición y mantenimiento predictivo
+
+La célula no solo ejecuta el ciclo: **vigila la salud del motor de la banda** y cierra el lazo
+*sensor → análisis → decisión → actuador* — el patrón de **mantenimiento predictivo** de la Industria 4.0.
+
+```mermaid
+flowchart LR
+    SENS["🌡️ Temperatura del motor<br/>(modelo térmico)"] --> MON["📈 monitor_condicion<br/>análisis + umbrales"]
+    MON -->|"T ≥ 78°C"| AL["🚨 ALARMA"]
+    AL --> FAN["❄️ Enfriamiento<br/>(ventilador · control P)"]
+    FAN -->|"estabiliza ~61°C"| SENS
+    MON -->|"cada minuto"| DB["🗄️ SQLite<br/>historian"]
+    DB -.->|"dataset"| IA["🤖 Modelo de IA<br/>(anomalías / predictivo)"]
+```
+
+El nodo **`monitor_condicion`** modela la **temperatura del motor** de la banda (modelo térmico de
+1.er orden: sube con la carga —banda + brazo—, baja hacia el ambiente). Webots no tiene un *device*
+de temperatura, así que se **modela** — lo correcto en un gemelo. Al cruzar el umbral dispara una
+**alarma** y un **sistema de enfriamiento** (ventilador con **control proporcional**) que **estabiliza**
+la temperatura en una zona segura, en lugar de dejar que el motor se dañe.
+
+| Umbral | Valor | Acción |
+|---|---|---|
+| **WARN** | 70 °C | aviso (zona naranja en la gráfica) |
+| **ALARM** | 78 °C | **alarma** + enfriamiento **automático** |
+| Consigna | ~61 °C | el control P sostiene una temperatura **plana** (verde) |
+| Clear | 68 °C | la alarma se limpia (histéresis) |
+
+**En el panel de control** se ve en vivo: la lectura de temperatura, una **gráfica temperatura-vs-tiempo**
+con las líneas WARN/ALARM, el foco de **alarma**, y el botón **❄ Enfriamiento** manual (la banda cian
+bajo la curva marca cuándo está enfriando). *Demo:* ▶ → la curva sube ~8 s → cruza ALARM → entra el
+enfriamiento → la curva **baja y se estabiliza** en verde, la alarma se limpia.
+
+### 9.1 Historian local (SQLite) → IA
+
+Cada minuto, `monitor_condicion` guarda la telemetría en una **base de datos SQLite local**
+(`~/proyecto_banda_ws/telemetria_motor.sqlite`, tabla `telemetria`: *timestamp, temperatura, alarma,
+enfriamiento, banda, cajas*). Ese **histórico** es el dataset para **entrenar después un modelo de IA**
+(detección de anomalías / predicción de fallos) — el paso *cloud / BI* del patrón Industria 4.0,
+aquí materializado con datos reales del proceso.
+
+> Con el monitor, el **MQTT del PLC** ya sale con **QoS 1**, **retained** y **Last Will (LWT)** de
+> verdad: `monitor_condicion` declara su *Last Will* (`{"estado":"OFFLINE"}`) y publica la telemetría
+> retenida en `planta/plc/estado`.
+
+---
+
+## 10. Edge vs. Cloud
 
 ¿Dónde corre la inteligencia? En esta célula, **todo el lazo de control está en el EDGE** (la propia máquina), por latencia y resiliencia:
 
@@ -336,11 +390,11 @@ flowchart LR
 ```
 
 - **Edge** (aquí): detección de color, máquina de estados, planificación MoveIt 2 / Nav 2. Latencia mínima, funciona sin red.
-- **Cloud** (extensión natural): el broker MQTT ya publica telemetría que una nube (p. ej. Ignition + Sparkplug B, o AWS) puede consumir para histórico, BI y **entrenar** modelos de anomalías que luego se despliegan al edge.
+- **Cloud** (extensión natural): el broker MQTT ya publica telemetría —y `monitor_condicion` la persiste en un **historian SQLite local**— que una nube (p. ej. Ignition + Sparkplug B, o AWS) puede consumir para histórico, BI y **entrenar** modelos de anomalías sobre esos datos, que luego se despliegan al edge.
 
 ---
 
-## 10. Cómo ejecutar
+## 11. Cómo ejecutar
 
 ```bash
 # Compilar
@@ -359,7 +413,7 @@ ros2 launch clasificador_rojo lanzamiento_etapa3.py gui:=true
 
 ---
 
-## 11. Estructura del repositorio
+## 12. Estructura del repositorio
 
 ```
 clasificador_rojo/
@@ -369,8 +423,9 @@ clasificador_rojo/
 │   ├── orquestador.cpp         # máquina de estados + clientes MoveIt/Nav2
 │   └── brazo.cpp               # MoveIt 2 (espacio de joints) + gripper
 ├── scripts/
-│   ├── plc_sim.py              # PLC simulado → MQTT (paho-mqtt)
-│   ├── control_gui.py          # panel de control Tkinter (start/pause/reset)
+│   ├── monitor_condicion.py    # mantenimiento predictivo: temperatura + alarma + enfriamiento + historian SQLite
+│   ├── plc_sim.py              # PLC simulado → MQTT (paho-mqtt) [reemplazado por monitor_condicion]
+│   ├── control_gui.py          # panel: start/pause/reset + gráfica temperatura/alarma/enfriamiento
 │   └── genera_mapa.py          # genera el mapa del recinto (sin SLAM)
 ├── plugins/                    # descripción pluginlib del plugin C++
 ├── worlds/  mundo_banda.wbt    # el gemelo digital: banda, cámara, UR5e, TurtleBot, paredes, obstáculo

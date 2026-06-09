@@ -12,6 +12,7 @@
 - [ ] Una terminal libre para el demo de MQTT (`mosquitto_pub`).
 - [ ] Dashboard de EMQX abierto en `localhost:18083` (opcional, se ve bien).
 - [ ] El sistema en estado **LISTO** (banda detenida, esperando ▶).
+- [ ] El panel muestra el **MONITOR DE CONDICIÓN** (temperatura + gráfica + botón ❄ Enfriamiento).
 - [ ] README abierto para mostrar los diagramas.
 
 ---
@@ -108,7 +109,7 @@ mosquitto_pub -t banda/comando -m stop    # ⏸ se detiene
 
 ---
 
-## [11:30 – 13:30] Demo completo en vivo
+## [11:30 – 13:00] Demo completo en vivo
 
 [DEMO en vivo — narrar mientras ocurre]
 
@@ -126,7 +127,28 @@ mosquitto_pub -t banda/comando -m stop    # ⏸ se detiene
 
 ---
 
-## [13:30 – 14:45] Edge, cloud y cierre
+## [13:00 – 14:10] Mantenimiento predictivo — la célula se cuida sola
+
+[PANTALLA: el panel, sección MONITOR DE CONDICIÓN con la gráfica de temperatura]
+
+*Pero una célula 4.0 no solo produce: **se vigila a sí misma**. En el panel, el **motor de la banda**
+tiene un sensor de **temperatura** que sube con la carga de trabajo. Lo dejo operando…*
+
+[DEMO: la curva sube y cruza las líneas WARN y ALARM]
+
+*…la temperatura sube, cruza el aviso amarillo… y dispara la **alarma** en rojo a 78 grados. En ese
+instante entra solo el **sistema de enfriamiento** —el ventilador— y, en la **misma gráfica**, vean
+cómo la curva se **dobla, baja y se estabiliza** en zona verde. La alarma se limpia. La célula reaccionó
+sin que yo tocara nada: eso es **mantenimiento predictivo** —detectar la anomalía y actuar antes de que
+el motor falle. También puedo forzarlo a mano con el botón ❄ Enfriamiento.*
+
+*Y aquí está la otra mitad: toda esta telemetría se **guarda cada minuto en una base de datos SQLite
+local**. ¿Para qué? Para **entrenar después un modelo de IA** que prediga el fallo. **MQTT** para el
+control en tiempo real; **base de datos** para el aprendizaje. El patrón de Industria 4.0, completo.*
+
+---
+
+## [14:10 – 14:55] Edge, cloud y cierre
 
 [PANTALLA: diagrama "Edge vs Cloud"]
 
@@ -148,5 +170,6 @@ mosquitto_pub -t banda/comando -m stop    # ⏸ se detiene
 | **Parte A** | 3:00–6:00 | MQTT + demo start/stop |
 | **Parte B** | 6:00–9:00 | ROS-Industrial + Nav 2 |
 | **Parte C** | 9:00–11:30 | gemelo digital + por qué Webots |
-| Demo | 11:30–13:30 | ciclo completo en vivo |
-| Cierre | 13:30–14:45 | edge/cloud + conclusión |
+| Demo | 11:30–13:00 | ciclo completo en vivo |
+| **Mant. predictivo** | 13:00–14:10 | temperatura · alarma · enfriamiento · SQLite→IA |
+| Cierre | 14:10–14:55 | edge/cloud + conclusión |

@@ -199,7 +199,14 @@ def generate_launch_description():
                                     "estacion_x": EST_X, "estacion_y": EST_Y}], output="screen")
     mqtt = Node(package="mqtt_client", executable="mqtt_client", name="mqtt_client",
                 parameters=[os.path.join(pkg, "config", "mqtt_params.yaml")], output="screen")
-    plc = Node(package="clasificador_rojo", executable="plc_sim.py", output="screen")
+    # Monitor de condición = el "PLC de planta": modela la temperatura del motor, dispara la alarma
+    # y el enfriamiento, y publica la telemetría por MQTT (sustituye a plc_sim, que daba temperatura
+    # aleatoria sin lazo). El panel y RViz leen /planta/temperatura, /planta/alarma, /planta/enfriamiento.
+    # use_sim_time=False A PROPÓSITO: el modelo térmico corre en RELOJ REAL, así la subida de
+    # temperatura no depende del "factor de tiempo real" de Webots (que en WSL2 sin GPU va a ~0.3x
+    # y haría la demo lentísima). Con reloj real: ~8 s a la alarma y enfriamiento visible al instante.
+    monitor = Node(package="clasificador_rojo", executable="monitor_condicion.py",
+                   parameters=[{"use_sim_time": False}], output="screen")
 
     # ================= Visualización (opcional: gui:=true) =================
     # RViz (cámara/detección + mapa/costmaps/ruta/scan de Nav2) + panel de control (Tkinter).
@@ -220,7 +227,7 @@ def generate_launch_description():
         rviz, panel,
         WaitForControllerConnection(
             target_driver=camara,
-            nodes_to_start=[spawn_ur5e, deteccion, orquestador, mqtt, plc]),
+            nodes_to_start=[spawn_ur5e, deteccion, orquestador, mqtt, monitor]),
         RegisterEventHandler(OnProcessIO(
             target_action=spawn_ur5e,
             on_stdout=lambda event: get_webots_driver_node(event, ur5e_driver))),

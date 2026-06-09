@@ -71,6 +71,7 @@ ros2 launch clasificador_rojo lanzamiento_etapa3.py gui:=true
 - **RViz**: imagen de la cámara con la caja en un recuadro verde + mapa, costmaps, ruta `/plan` de Nav 2, y láser `/scan`.
 - **Webots** (Windows): la célula 3D — banda, UR5e, TurtleBot, recinto, obstáculo.
 - **Dashboard EMQX**: http://localhost:18083 (ver el tráfico MQTT en vivo).
+- **Panel — Monitor de condición** (mantenimiento predictivo): la **temperatura del motor** sube cuando la banda corre. *Demo:* con la banda corriendo de continuo, en **~8 s** cruza **ALARM (78 °C)** → entra el **enfriamiento** solo y la curva **se estabiliza** en verde; o pulsa **❄ Enfriamiento** a mano. La telemetría se guarda **cada minuto** en `~/proyecto_banda_ws/telemetria_motor.sqlite` (dataset para entrenar IA después).
 
 ---
 
