@@ -12,3 +12,6 @@ log/
 *~
 .vscode/
 .DS_Store
+
+# guion del video (local, no versionado)
+GUION_VIDEO.md
